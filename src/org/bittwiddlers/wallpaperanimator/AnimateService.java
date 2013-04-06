@@ -12,6 +12,7 @@ import android.os.Environment;
 import android.os.Handler;
 import android.service.wallpaper.WallpaperService;
 import android.util.Log;
+import android.util.Pair;
 import android.view.SurfaceHolder;
 
 import java.io.FileInputStream;
@@ -42,6 +43,8 @@ public class AnimateService extends WallpaperService {
 
         private int            frame            = 0;
         private boolean        firstShow        = true;
+        private boolean        loaded           = false;
+        private Bitmap[]       layers           = null;
         private Bitmap[]       frames           = null;
 
         private String         zipFile          = null;
@@ -55,18 +58,30 @@ public class AnimateService extends WallpaperService {
 
         private final boolean tryLoadFrames() {
             // Don't reload if we already loaded:
-            if (frames != null)
+            if (loaded)
                 return true;
 
             // Load frames:
-            frames = loadFramesZIP(zipFile, imageNumberRegex);
-            if (frames == null)
+            Pair<Bitmap[], Bitmap[]> parts = loadFramesZIP(zipFile, imageNumberRegex);
+            if (parts == null)
                 return false;
+
+            layers = parts.first;
+            frames = parts.second;
 
             return true;
         }
 
-        private final Bitmap[] loadFramesZIP(String zipFile, Pattern imageNumberRegex) {
+        private final Pair<Bitmap[], Bitmap[]> loadFramesZIP(String zipFile, Pattern imageNumberRegex) {
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inPurgeable = true;
+            options.inInputShareable = true;
+            // HACK: awful; resampling bitmaps to save memory
+            options.inSampleSize = 2;
+
+            System.gc();
+
+            SortedMap<String, Bitmap> layerSet = new java.util.TreeMap<String, Bitmap>();
             SortedMap<String, Bitmap> frameSet = new java.util.TreeMap<String, Bitmap>();
             try {
                 Log.v("loadFramesZIP", String.format("Opening %s", zipFile));
@@ -76,11 +91,10 @@ public class AnimateService extends WallpaperService {
 
                 ZipEntry ze = null;
                 while ((ze = zis.getNextEntry()) != null) {
-                    String name = ze.getName();
-
                     if (ze.isDirectory())
                         continue;
 
+                    String name = ze.getName();
                     // Parse out the frame number:
                     Matcher m = imageNumberRegex.matcher(name);
                     if (!m.matches()) {
@@ -88,14 +102,22 @@ public class AnimateService extends WallpaperService {
                         continue;
                     }
 
+                    SortedMap<String, Bitmap> set = frameSet;
+                    String kind = "frame";
+
+                    if (name.startsWith("layer")) {
+                        set = layerSet;
+                        kind = "layer";
+                    }
+
                     String number = m.group(1);
-                    if (frameSet.containsKey(number)) {
-                        Log.v("loadFramesZIP", String.format("Skipping frame %s; already loaded", number));
+                    if (set.containsKey(number)) {
+                        Log.v("loadFramesZIP", String.format("Skipping %s %s; already loaded", kind, number));
                         continue;
                     }
 
                     // Decode the bitmap from the ZIP stream:
-                    Bitmap bm = BitmapFactory.decodeStream(zis);
+                    Bitmap bm = BitmapFactory.decodeStream(zis, null, options);
                     zis.closeEntry();
 
                     // Validate the frame's dimensions:
@@ -107,14 +129,14 @@ public class AnimateService extends WallpaperService {
                         // Reject frames that are not the same size as the first
                         // frame:
                         if (!animSourceRect.equals(size)) {
-                            Log.v("loadFramesZIP", String.format("Skipping frame %s due to mismatched width (%d != %d) or height (%d != %d)", number,
+                            Log.v("loadFramesZIP", String.format("Skipping %s %s due to mismatched width (%d != %d) or height (%d != %d)", kind, number,
                                     size.width(), animSourceRect.width(), size.height(), animSourceRect.height()));
                             continue;
                         }
                     }
 
                     // Add the frame to the set:
-                    frameSet.put(number, bm);
+                    set.put(number, bm);
                 }
 
                 zis.close();
@@ -123,15 +145,29 @@ public class AnimateService extends WallpaperService {
                 return null;
             }
 
+            Bitmap[] layers;
+            // No layers loaded?
+            if (layerSet.size() == 0) {
+                layers = null;
+            } else {
+                // Copy the Bitmaps to the array (assuming values() is sorted
+                // here):
+                layers = new Bitmap[layerSet.size()];
+                layerSet.values().toArray(layers);
+            }
+
+            Bitmap[] frames;
             // No frames loaded?
-            if (frameSet.size() == 0)
-                return null;
+            if (frameSet.size() == 0) {
+                frames = null;
+            } else {
+                // Copy the Bitmaps to the array (assuming values() is sorted
+                // here):
+                frames = new Bitmap[frameSet.size()];
+                frameSet.values().toArray(frames);
+            }
 
-            // Copy the Bitmaps to the array (assuming values() is sorted here):
-            Bitmap[] frames = new Bitmap[frameSet.size()];
-            frameSet.values().toArray(frames);
-
-            return frames;
+            return new Pair<Bitmap[], Bitmap[]>(layers, frames);
         }
 
         @Override
@@ -144,16 +180,19 @@ public class AnimateService extends WallpaperService {
             return super.onCommand(action, x, y, z, extras, resultRequested);
         }
 
+        private void setupInitialFrame() {
+            if (!loaded)
+                loaded = tryLoadFrames();
+
+            firstShow = true;
+            frame = 0;
+        }
+
         @Override
         public void onVisibilityChanged(boolean visible) {
             mVisible = visible;
             if (visible) {
-                if (frames == null)
-                    tryLoadFrames();
-
-                firstShow = true;
-                frame = 0;
-
+                setupInitialFrame();
                 draw();
             } else {
                 mHandler.removeCallbacks(mUpdateDisplay);
@@ -162,12 +201,7 @@ public class AnimateService extends WallpaperService {
 
         @Override
         public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-            if (frames == null)
-                tryLoadFrames();
-
-            firstShow = true;
-            frame = 0;
-
+            setupInitialFrame();
             draw();
         }
 
@@ -188,7 +222,7 @@ public class AnimateService extends WallpaperService {
         }
 
         private final void draw() {
-            if (frames == null) {
+            if (!loaded) {
                 mVisible = false;
             }
 
@@ -213,9 +247,6 @@ public class AnimateService extends WallpaperService {
                         }
 
                         if (mVisible) {
-                            // Render the next frame:
-                            final int frameCount = frames.length;
-
                             final int cw = c.getWidth(), ch = c.getHeight();
                             final int fw = animSourceRect.width(), fh = animSourceRect.height();
 
@@ -225,16 +256,24 @@ public class AnimateService extends WallpaperService {
 
                             final float halfwidth = fw * scale * 0.5f, halfheight = fh * scale * 0.5f;
                             final float centerX = cw / 2f, centerY = ch / 2f;
-
                             RectF target = new RectF(centerX - halfwidth, centerY - halfheight, centerX + halfwidth, centerY + halfheight);
 
-                            // Draw the animation frame in the center:
                             Paint paint = new Paint();
-                            c.drawBitmap(frames[frame], animSourceRect, target, paint);
 
-                            // Increment frame counter:
-                            if (++frame >= frameCount)
-                                frame = 0;
+                            if (layers != null) {
+                                // Draw layers in order:
+                                for (int i = 0; i < layers.length; ++i) {
+                                    c.drawBitmap(layers[i], animSourceRect, target, paint);
+                                }
+                            }
+                            if (frames != null) {
+                                // Draw the animation frame:
+                                c.drawBitmap(frames[frame], animSourceRect, target, paint);
+
+                                // Increment frame counter:
+                                if (++frame >= frames.length)
+                                    frame = 0;
+                            }
                         }
                     }
                 }
