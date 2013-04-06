@@ -67,36 +67,30 @@ public class AnimateService extends WallpaperService {
         }
 
         private final Bitmap[] loadFramesZIP(String zipFile, Pattern imageNumberRegex) {
-            SortedMap<Integer, Bitmap> frameSet = new java.util.TreeMap<Integer, Bitmap>();
+            SortedMap<String, Bitmap> frameSet = new java.util.TreeMap<String, Bitmap>();
             try {
+                Log.v("loadFramesZIP", String.format("Opening %s", zipFile));
+
                 FileInputStream fis = new FileInputStream(zipFile);
                 ZipInputStream zis = new ZipInputStream(fis);
 
                 ZipEntry ze = null;
                 while ((ze = zis.getNextEntry()) != null) {
                     String name = ze.getName();
-                    Log.v("loadFramesZIP", "At " + name);
 
-                    if (ze.isDirectory()) {
-                        Log.v("loadFramesZIP", "Skipping directory");
+                    if (ze.isDirectory())
                         continue;
-                    }
 
+                    // Parse out the frame number:
                     Matcher m = imageNumberRegex.matcher(name);
                     if (!m.matches()) {
-                        Log.v("loadFramesZIP", "Skipping non-matching filename");
+                        Log.v("loadFramesZIP", String.format("Skipping non-matching filename '%s'", name));
                         continue;
                     }
-                    String number = m.group(1);
-                    Log.v("loadFramesZIP", String.format("Parsed frame number %s", number));
 
-                    // TODO(jsd): frame numbers don't necessarily have to be
-                    // parsed as integers.
-                    // They could just rely on being properly collated as
-                    // strings.
-                    int index = java.lang.Integer.parseInt(number, 10);
-                    if (frameSet.containsKey(index)) {
-                        Log.v("loadFramesZIP", String.format("Skipping bitmap because frame number %d is already loaded", index));
+                    String number = m.group(1);
+                    if (frameSet.containsKey(number)) {
+                        Log.v("loadFramesZIP", String.format("Skipping frame %s; already loaded", number));
                         continue;
                     }
 
@@ -104,8 +98,8 @@ public class AnimateService extends WallpaperService {
                     Bitmap bm = BitmapFactory.decodeStream(zis);
                     zis.closeEntry();
 
+                    // Validate the frame's dimensions:
                     Rect size = new Rect(0, 0, bm.getWidth(), bm.getHeight());
-
                     if (animSourceRect == null) {
                         // Record the first frame's width and height:
                         animSourceRect = size;
@@ -113,15 +107,14 @@ public class AnimateService extends WallpaperService {
                         // Reject frames that are not the same size as the first
                         // frame:
                         if (!animSourceRect.equals(size)) {
-                            Log.v("loadFramesZIP",
-                                    String.format("Skipping bitmap due to mismatched width (%d != %d) or height (%d != %d)", size.width(),
-                                            animSourceRect.width(), size.height(), animSourceRect.height()));
+                            Log.v("loadFramesZIP", String.format("Skipping frame %s due to mismatched width (%d != %d) or height (%d != %d)", number,
+                                    size.width(), animSourceRect.width(), size.height(), animSourceRect.height()));
                             continue;
                         }
                     }
 
                     // Add the frame to the set:
-                    frameSet.put(index, bm);
+                    frameSet.put(number, bm);
                 }
 
                 zis.close();
@@ -214,7 +207,7 @@ public class AnimateService extends WallpaperService {
                 if (c != null) {
                     synchronized (holder) {
                         if (firstShow) {
-                            // Clear the screen if nothing to show:
+                            // Clear the screen:
                             c.drawColor(Color.BLACK);
                             firstShow = false;
                         }
