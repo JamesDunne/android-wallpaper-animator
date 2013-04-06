@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -21,235 +23,242 @@ import java.util.zip.ZipInputStream;
 
 public class AnimateService extends WallpaperService {
 
-	@Override
-	public Engine onCreateEngine() {
-		// TODO Auto-generated method stub
-		return new AnimateEngine();
-	}
+    @Override
+    public Engine onCreateEngine() {
+        // TODO Auto-generated method stub
+        return new AnimateEngine();
+    }
 
-	private class AnimateEngine extends Engine {
-		private boolean mVisible = false;
-		private final Handler mHandler = new Handler();
-		private final Runnable mUpdateDisplay = new Runnable() {
-			public void run() {
-				draw();
-			}
-		};
+    private class AnimateEngine extends Engine {
+        private boolean        mVisible         = false;
+        private final Handler  mHandler         = new Handler();
+        private final Runnable mUpdateDisplay   = new Runnable() {
+                                                    public void run() {
+                                                        draw();
+                                                    }
+                                                };
 
-		private int frame = 0;
-		private int animWidth = 0, animHeight = 0;
-		private boolean firstShow = true;
-		private Bitmap[] frames = null;
+        private Rect           animSourceRect   = null;
 
-		private String zipFile = null;
-		private Pattern imageNumberRegex = null;
+        private int            frame            = 0;
+        private boolean        firstShow        = true;
+        private Bitmap[]       frames           = null;
 
-		public AnimateEngine() {
-			zipFile = Environment.getExternalStorageDirectory()
-					+ "/animated-wallpaper.zip";
+        private String         zipFile          = null;
+        private Pattern        imageNumberRegex = null;
 
-			imageNumberRegex = java.util.regex.Pattern.compile(
-					".*?([0-9]++)(?:\\..+)*$", Pattern.CASE_INSENSITIVE);
-		}
+        public AnimateEngine() {
+            zipFile = Environment.getExternalStorageDirectory() + "/animated-wallpaper.zip";
 
-		private boolean tryLoadFrames() {
-			// Don't reload if we already loaded:
-			if (frames != null)
-				return true;
+            imageNumberRegex = java.util.regex.Pattern.compile(".*?([0-9]++)(?:\\..+)*$", Pattern.CASE_INSENSITIVE);
+        }
 
-			// Load frames:
-			frames = loadFramesZIP(zipFile, imageNumberRegex);
-			if (frames == null)
-				return false;
+        private final boolean tryLoadFrames() {
+            // Don't reload if we already loaded:
+            if (frames != null)
+                return true;
 
-			return true;
-		}
+            // Load frames:
+            frames = loadFramesZIP(zipFile, imageNumberRegex);
+            if (frames == null)
+                return false;
 
-		private Bitmap[] loadFramesZIP(String zipFile, Pattern imageNumberRegex) {
-			SortedMap<Integer, Bitmap> frameSet = new java.util.TreeMap<Integer, Bitmap>();
-			try {
-				FileInputStream fis = new FileInputStream(zipFile);
-				ZipInputStream zis = new ZipInputStream(fis);
+            return true;
+        }
 
-				ZipEntry ze = null;
-				while ((ze = zis.getNextEntry()) != null) {
-					String name = ze.getName();
-					Log.v("loadFramesZIP", "At " + name);
+        private final Bitmap[] loadFramesZIP(String zipFile, Pattern imageNumberRegex) {
+            SortedMap<Integer, Bitmap> frameSet = new java.util.TreeMap<Integer, Bitmap>();
+            try {
+                FileInputStream fis = new FileInputStream(zipFile);
+                ZipInputStream zis = new ZipInputStream(fis);
 
-					if (ze.isDirectory()) {
-						Log.v("loadFramesZIP", "Skipping directory");
-						continue;
-					}
+                ZipEntry ze = null;
+                while ((ze = zis.getNextEntry()) != null) {
+                    String name = ze.getName();
+                    Log.v("loadFramesZIP", "At " + name);
 
-					Matcher m = imageNumberRegex.matcher(name);
-					if (!m.matches()) {
-						Log.v("loadFramesZIP", "Skipping non-matching filename");
-						continue;
-					}
-					String number = m.group(1);
-					Log.v("loadFramesZIP",
-							String.format("Parsed frame number %s", number));
+                    if (ze.isDirectory()) {
+                        Log.v("loadFramesZIP", "Skipping directory");
+                        continue;
+                    }
 
-					int index = java.lang.Integer.parseInt(number, 10);
-					if (frameSet.containsKey(index)) {
-						Log.v("loadFramesZIP",
-								String.format(
-										"Skipping bitmap because frame number %d is already loaded",
-										index));
-						continue;
-					}
+                    Matcher m = imageNumberRegex.matcher(name);
+                    if (!m.matches()) {
+                        Log.v("loadFramesZIP", "Skipping non-matching filename");
+                        continue;
+                    }
+                    String number = m.group(1);
+                    Log.v("loadFramesZIP", String.format("Parsed frame number %s", number));
 
-					// Decode the bitmap from the ZIP stream:
-					Bitmap bm = BitmapFactory.decodeStream(zis);
-					zis.closeEntry();
+                    // TODO(jsd): frame numbers don't necessarily have to be
+                    // parsed as integers.
+                    // They could just rely on being properly collated as
+                    // strings.
+                    int index = java.lang.Integer.parseInt(number, 10);
+                    if (frameSet.containsKey(index)) {
+                        Log.v("loadFramesZIP", String.format("Skipping bitmap because frame number %d is already loaded", index));
+                        continue;
+                    }
 
-					final int bmWidth = bm.getWidth();
-					final int bmheight = bm.getHeight();
+                    // Decode the bitmap from the ZIP stream:
+                    Bitmap bm = BitmapFactory.decodeStream(zis);
+                    zis.closeEntry();
 
-					if (animWidth == 0) {
-						// Record the first frame's width and height:
-						animWidth = bmWidth;
-						animHeight = bmheight;
-					} else {
-						// Reject frames that are not the same size as the first
-						// frame:
-						if (animWidth != bmWidth || animHeight != bmheight) {
-							Log.v("loadFramesZIP",
-									String.format(
-											"Skipping bitmap due to mismatched width (%d != %d) or height (%d != %d)",
-											bmWidth, animWidth, bmheight,
-											animHeight));
-							continue;
-						}
-					}
+                    Rect size = new Rect(0, 0, bm.getWidth(), bm.getHeight());
 
-					// Add the frame to the set:
-					frameSet.put(index, bm);
-				}
+                    if (animSourceRect == null) {
+                        // Record the first frame's width and height:
+                        animSourceRect = size;
+                    } else {
+                        // Reject frames that are not the same size as the first
+                        // frame:
+                        if (!animSourceRect.equals(size)) {
+                            Log.v("loadFramesZIP",
+                                    String.format("Skipping bitmap due to mismatched width (%d != %d) or height (%d != %d)", size.width(),
+                                            animSourceRect.width(), size.height(), animSourceRect.height()));
+                            continue;
+                        }
+                    }
 
-				zis.close();
-			} catch (Exception e) {
-				Log.e("loadFramesZIP", zipFile, e);
-				return null;
-			}
+                    // Add the frame to the set:
+                    frameSet.put(index, bm);
+                }
 
-			// No frames loaded?
-			if (frameSet.size() == 0)
-				return null;
+                zis.close();
+            } catch (Exception e) {
+                Log.e("loadFramesZIP", zipFile, e);
+                return null;
+            }
 
-			// Copy the Bitmaps to the array (assuming values() is sorted here):
-			Bitmap[] frames = new Bitmap[frameSet.size()];
-			frameSet.values().toArray(frames);
+            // No frames loaded?
+            if (frameSet.size() == 0)
+                return null;
 
-			return frames;
-		}
+            // Copy the Bitmaps to the array (assuming values() is sorted here):
+            Bitmap[] frames = new Bitmap[frameSet.size()];
+            frameSet.values().toArray(frames);
 
-		private void draw() {
-			mHandler.removeCallbacks(mUpdateDisplay);
+            return frames;
+        }
 
-			if (frames == null) {
-				mVisible = false;
-			}
+        @Override
+        public Bundle onCommand(String action, int x, int y, int z, Bundle extras, boolean resultRequested) {
+            // // Handle tap commands eventually:
+            // if (action == android.app.WallpaperManager.COMMAND_TAP) {
+            // return null;
+            // }
+            // TODO Auto-generated method stub
+            return super.onCommand(action, x, y, z, extras, resultRequested);
+        }
 
-			SurfaceHolder holder = getSurfaceHolder();
-			Canvas c = null;
+        @Override
+        public void onVisibilityChanged(boolean visible) {
+            mVisible = visible;
+            if (visible) {
+                if (frames == null)
+                    tryLoadFrames();
 
-			try {
-				c = holder.lockCanvas(null);
-				if (c != null) {
-					synchronized (holder) {
-						if (firstShow) {
-							// Clear the screen if nothing to show:
-							c.drawColor(Color.BLACK);
-							firstShow = false;
-						}
+                firstShow = true;
+                frame = 0;
 
-						if (mVisible) {
-							// Render the next frame:
-							final int frameCount = frames.length;
-							final int mCenterX = c.getWidth() / 2;
-							final int mCenterY = c.getHeight() / 2;
+                draw();
+            } else {
+                mHandler.removeCallbacks(mUpdateDisplay);
+            }
+        }
 
-							Paint paint = new Paint();
-							paint.setColor(Color.WHITE);
-							paint.setStyle(Paint.Style.STROKE);
-							paint.setStrokeJoin(Paint.Join.ROUND);
-							paint.setStrokeWidth(4f);
+        @Override
+        public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+            if (frames == null)
+                tryLoadFrames();
 
-							// Draw the animation frame in the center:
-							c.drawBitmap(frames[frame], mCenterX
-									- (animWidth / 2f), mCenterY
-									- (animHeight / 2f), paint);
+            firstShow = true;
+            frame = 0;
 
-							// Increment frame counter:
-							if (++frame >= frameCount)
-								frame = 0;
-						}
-					}
-				}
-			} finally {
-				if (c != null)
-					holder.unlockCanvasAndPost(c);
-			}
+            draw();
+        }
 
-			if (mVisible) {
-				// 30 fps = 33.3333ms per frame
-				mHandler.postDelayed(mUpdateDisplay, 33);
-			}
-		}
+        @Override
+        public void onSurfaceDestroyed(SurfaceHolder holder) {
+            super.onSurfaceDestroyed(holder);
+            mVisible = false;
+            firstShow = true;
+            mHandler.removeCallbacks(mUpdateDisplay);
+        }
 
-		@Override
-		public Bundle onCommand(String action, int x, int y, int z,
-				Bundle extras, boolean resultRequested) {
-			if (action == android.app.WallpaperManager.COMMAND_TAP) {
-				return null;
-			}
-			// TODO Auto-generated method stub
-			return super.onCommand(action, x, y, z, extras, resultRequested);
-		}
+        @Override
+        public void onDestroy() {
+            super.onDestroy();
+            mVisible = false;
+            firstShow = true;
+            mHandler.removeCallbacks(mUpdateDisplay);
+        }
 
-		@Override
-		public void onVisibilityChanged(boolean visible) {
-			mVisible = visible;
-			if (visible) {
-				if (frames == null)
-					tryLoadFrames();
+        private final void draw() {
+            if (frames == null) {
+                mVisible = false;
+            }
 
-				firstShow = true;
-				frame = 0;
+            SurfaceHolder holder = null;
+            try {
+                holder = getSurfaceHolder();
+            } catch (Exception e) {
+                Log.e("draw", "Could not getSurfaceHolder()", e);
+                return;
+            }
 
-				draw();
-			} else {
-				mHandler.removeCallbacks(mUpdateDisplay);
-			}
-		}
+            Canvas c = null;
+            long startTime = android.os.SystemClock.uptimeMillis();
+            try {
+                c = holder.lockCanvas(null);
+                if (c != null) {
+                    synchronized (holder) {
+                        if (firstShow) {
+                            // Clear the screen if nothing to show:
+                            c.drawColor(Color.BLACK);
+                            firstShow = false;
+                        }
 
-		@Override
-		public void onSurfaceChanged(SurfaceHolder holder, int format,
-				int width, int height) {
-			if (frames == null)
-				tryLoadFrames();
+                        if (mVisible) {
+                            // Render the next frame:
+                            final int frameCount = frames.length;
 
-			firstShow = true;
-			frame = 0;
+                            final int cw = c.getWidth(), ch = c.getHeight();
+                            final int fw = animSourceRect.width(), fh = animSourceRect.height();
 
-			draw();
-		}
+                            // Scales bitmap up and centers it:
+                            float scale;
+                            scale = Math.min((float) ch / (float) fh, (float) cw / (float) fw);
 
-		@Override
-		public void onSurfaceDestroyed(SurfaceHolder holder) {
-			super.onSurfaceDestroyed(holder);
-			mVisible = false;
-			firstShow = true;
-			mHandler.removeCallbacks(mUpdateDisplay);
-		}
+                            final float halfwidth = fw * scale * 0.5f, halfheight = fh * scale * 0.5f;
+                            final float centerX = cw / 2f, centerY = ch / 2f;
 
-		@Override
-		public void onDestroy() {
-			super.onDestroy();
-			mVisible = false;
-			firstShow = true;
-			mHandler.removeCallbacks(mUpdateDisplay);
-		}
-	}
+                            RectF target = new RectF(centerX - halfwidth, centerY - halfheight, centerX + halfwidth, centerY + halfheight);
+
+                            // Draw the animation frame in the center:
+                            Paint paint = new Paint();
+                            c.drawBitmap(frames[frame], animSourceRect, target, paint);
+
+                            // Increment frame counter:
+                            if (++frame >= frameCount)
+                                frame = 0;
+                        }
+                    }
+                }
+            } finally {
+                if (c != null)
+                    holder.unlockCanvasAndPost(c);
+            }
+
+            mHandler.removeCallbacks(mUpdateDisplay);
+            if (mVisible) {
+                // 30 fps = 33.3333ms per frame
+                long delay = 33 - (android.os.SystemClock.uptimeMillis() - startTime);
+                if (delay < 0l)
+                    delay = 0l;
+
+                mHandler.postDelayed(mUpdateDisplay, delay);
+            }
+        }
+    }
 }
