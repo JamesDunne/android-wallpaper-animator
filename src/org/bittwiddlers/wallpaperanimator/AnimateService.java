@@ -38,19 +38,26 @@ public class AnimateService extends WallpaperService {
 
 		private int frame = 0;
 		private int animWidth = 0, animHeight = 0;
+		private boolean firstShow = true;
 		private Bitmap[] frames = null;
 
+		private String zipFile = null;
+		private Pattern imageNumberRegex = null;
+
 		public AnimateEngine() {
-			tryLoadFrames();
+			zipFile = Environment.getExternalStorageDirectory()
+					+ "/animated-wallpaper.zip";
+
+			imageNumberRegex = java.util.regex.Pattern.compile(
+					".*?([0-9]++)(?:\\..+)*$", Pattern.CASE_INSENSITIVE);
 		}
 
-		private Boolean tryLoadFrames() {
-			String zipFile = Environment.getExternalStorageDirectory()
-					+ "/fixit.zip";
+		private boolean tryLoadFrames() {
+			// Don't reload if we already loaded:
+			if (frames != null)
+				return true;
 
-			Pattern imageNumberRegex = java.util.regex.Pattern
-					.compile("n([0-9]+).png");
-
+			// Load frames:
 			frames = loadFramesZIP(zipFile, imageNumberRegex);
 			if (frames == null)
 				return false;
@@ -67,7 +74,6 @@ public class AnimateService extends WallpaperService {
 				ZipEntry ze = null;
 				while ((ze = zis.getNextEntry()) != null) {
 					String name = ze.getName();
-
 					Log.v("loadFramesZIP", "At " + name);
 
 					if (ze.isDirectory()) {
@@ -82,7 +88,7 @@ public class AnimateService extends WallpaperService {
 					}
 					String number = m.group(1);
 					Log.v("loadFramesZIP",
-							String.format("Parsed frame number %d", number));
+							String.format("Parsed frame number %s", number));
 
 					int index = java.lang.Integer.parseInt(number, 10);
 					if (frameSet.containsKey(index)) {
@@ -143,10 +149,8 @@ public class AnimateService extends WallpaperService {
 
 			if (frames == null) {
 				mVisible = false;
-				return;
 			}
 
-			final int frameCount = frames.length;
 			SurfaceHolder holder = getSurfaceHolder();
 			Canvas c = null;
 
@@ -154,23 +158,33 @@ public class AnimateService extends WallpaperService {
 				c = holder.lockCanvas(null);
 				if (c != null) {
 					synchronized (holder) {
-						final int mCenterX = c.getWidth() / 2;
-						final int mCenterY = c.getHeight() / 2;
+						if (firstShow) {
+							// Clear the screen if nothing to show:
+							c.drawColor(Color.BLACK);
+							firstShow = false;
+						}
 
-						// Increment frame counter:
-						if (++frame >= frameCount)
-							frame = 0;
+						if (mVisible) {
+							// Render the next frame:
+							final int frameCount = frames.length;
+							final int mCenterX = c.getWidth() / 2;
+							final int mCenterY = c.getHeight() / 2;
 
-						Paint paint = new Paint();
-						paint.setColor(Color.WHITE);
-						paint.setStyle(Paint.Style.STROKE);
-						paint.setStrokeJoin(Paint.Join.ROUND);
-						paint.setStrokeWidth(4f);
+							Paint paint = new Paint();
+							paint.setColor(Color.WHITE);
+							paint.setStyle(Paint.Style.STROKE);
+							paint.setStrokeJoin(Paint.Join.ROUND);
+							paint.setStrokeWidth(4f);
 
-						// Draw the animation frame in the center:
-						c.drawBitmap(frames[frame],
-								mCenterX - (animWidth / 2f), mCenterY
-										- (animHeight / 2f), paint);
+							// Draw the animation frame in the center:
+							c.drawBitmap(frames[frame], mCenterX
+									- (animWidth / 2f), mCenterY
+									- (animHeight / 2f), paint);
+
+							// Increment frame counter:
+							if (++frame >= frameCount)
+								frame = 0;
+						}
 					}
 				}
 			} finally {
@@ -201,6 +215,9 @@ public class AnimateService extends WallpaperService {
 				if (frames == null)
 					tryLoadFrames();
 
+				firstShow = true;
+				frame = 0;
+
 				draw();
 			} else {
 				mHandler.removeCallbacks(mUpdateDisplay);
@@ -210,6 +227,12 @@ public class AnimateService extends WallpaperService {
 		@Override
 		public void onSurfaceChanged(SurfaceHolder holder, int format,
 				int width, int height) {
+			if (frames == null)
+				tryLoadFrames();
+
+			firstShow = true;
+			frame = 0;
+
 			draw();
 		}
 
@@ -217,6 +240,7 @@ public class AnimateService extends WallpaperService {
 		public void onSurfaceDestroyed(SurfaceHolder holder) {
 			super.onSurfaceDestroyed(holder);
 			mVisible = false;
+			firstShow = true;
 			mHandler.removeCallbacks(mUpdateDisplay);
 		}
 
@@ -224,6 +248,7 @@ public class AnimateService extends WallpaperService {
 		public void onDestroy() {
 			super.onDestroy();
 			mVisible = false;
+			firstShow = true;
 			mHandler.removeCallbacks(mUpdateDisplay);
 		}
 	}
