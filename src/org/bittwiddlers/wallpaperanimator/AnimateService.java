@@ -12,15 +12,12 @@ import android.os.Environment;
 import android.os.Handler;
 import android.service.wallpaper.WallpaperService;
 import android.util.Log;
-import android.util.Pair;
 import android.view.SurfaceHolder;
 
-import java.io.FileInputStream;
+import java.io.File;
 import java.util.SortedMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 public class AnimateService extends WallpaperService {
 
@@ -44,14 +41,14 @@ public class AnimateService extends WallpaperService {
         private int            frame            = 0;
         private boolean        firstShow        = true;
         private boolean        loaded           = false;
-        private Bitmap[]       layers           = null;
-        private Bitmap[]       frames           = null;
+        private String[]       layers           = null;
+        private String[]       frames           = null;
 
-        private String         zipFile          = null;
+        private String         folderPath       = null;
         private Pattern        imageNumberRegex = null;
 
         public AnimateEngine() {
-            zipFile = Environment.getExternalStorageDirectory() + "/animated-wallpaper.zip";
+            folderPath = Environment.getExternalStorageDirectory() + "/animated-wallpaper/";
 
             imageNumberRegex = java.util.regex.Pattern.compile(".*?([0-9]++)(?:\\..+)*$", Pattern.CASE_INSENSITIVE);
         }
@@ -61,48 +58,32 @@ public class AnimateService extends WallpaperService {
             if (loaded)
                 return true;
 
-            // Load frames:
-            Pair<Bitmap[], Bitmap[]> parts = loadFramesZIP(zipFile, imageNumberRegex);
-            if (parts == null)
-                return false;
-
-            layers = parts.first;
-            frames = parts.second;
-
-            return true;
-        }
-
-        private final Pair<Bitmap[], Bitmap[]> loadFramesZIP(String zipFile, Pattern imageNumberRegex) {
+            // Set up options to only decode bounds of bitmaps and not to
+            // allocate pixel memory:
             BitmapFactory.Options options = new BitmapFactory.Options();
-            options.inPurgeable = true;
-            options.inInputShareable = true;
-            // HACK: awful; resampling bitmaps to save memory
-            options.inSampleSize = 2;
+            options.inJustDecodeBounds = true;
 
-            System.gc();
-
-            SortedMap<String, Bitmap> layerSet = new java.util.TreeMap<String, Bitmap>();
-            SortedMap<String, Bitmap> frameSet = new java.util.TreeMap<String, Bitmap>();
+            SortedMap<String, String> layerSet = new java.util.TreeMap<String, String>();
+            SortedMap<String, String> frameSet = new java.util.TreeMap<String, String>();
             try {
-                Log.v("loadFramesZIP", String.format("Opening %s", zipFile));
+                Log.i("tryLoadFrames", String.format("Searching directory '%s'", folderPath));
 
-                FileInputStream fis = new FileInputStream(zipFile);
-                ZipInputStream zis = new ZipInputStream(fis);
-
-                ZipEntry ze = null;
-                while ((ze = zis.getNextEntry()) != null) {
-                    if (ze.isDirectory())
+                File folder = new File(folderPath);
+                File[] list = folder.listFiles();
+                for (int i = 0; i < list.length; ++i) {
+                    File f = list[i];
+                    if (f.isDirectory())
                         continue;
 
-                    String name = ze.getName();
+                    String name = f.getName();
                     // Parse out the frame number:
                     Matcher m = imageNumberRegex.matcher(name);
                     if (!m.matches()) {
-                        Log.v("loadFramesZIP", String.format("Skipping non-matching filename '%s'", name));
+                        Log.v("tryLoadFrames", String.format("Skipping non-matching filename '%s'", name));
                         continue;
                     }
 
-                    SortedMap<String, Bitmap> set = frameSet;
+                    SortedMap<String, String> set = frameSet;
                     String kind = "frame";
 
                     if (name.startsWith("layer")) {
@@ -112,16 +93,16 @@ public class AnimateService extends WallpaperService {
 
                     String number = m.group(1);
                     if (set.containsKey(number)) {
-                        Log.v("loadFramesZIP", String.format("Skipping %s %s; already loaded", kind, number));
+                        Log.w("tryLoadFrames", String.format("Skipping %s %s; already loaded", kind, number));
                         continue;
                     }
 
-                    // Decode the bitmap from the ZIP stream:
-                    Bitmap bm = BitmapFactory.decodeStream(zis, null, options);
-                    zis.closeEntry();
+                    // Only parse out the dimensions of the bitmap:
+                    Bitmap bm = BitmapFactory.decodeFile(f.getAbsolutePath(), options);
+                    assert bm == null;
 
                     // Validate the frame's dimensions:
-                    Rect size = new Rect(0, 0, bm.getWidth(), bm.getHeight());
+                    Rect size = new Rect(0, 0, options.outWidth, options.outHeight);
                     if (animSourceRect == null) {
                         // Record the first frame's width and height:
                         animSourceRect = size;
@@ -129,45 +110,41 @@ public class AnimateService extends WallpaperService {
                         // Reject frames that are not the same size as the first
                         // frame:
                         if (!animSourceRect.equals(size)) {
-                            Log.v("loadFramesZIP", String.format("Skipping %s %s due to mismatched width (%d != %d) or height (%d != %d)", kind, number,
+                            Log.w("tryLoadFrames", String.format("Skipping %s %s due to mismatched width (%d != %d) or height (%d != %d)", kind, number,
                                     size.width(), animSourceRect.width(), size.height(), animSourceRect.height()));
                             continue;
                         }
                     }
 
-                    // Add the frame to the set:
-                    set.put(number, bm);
+                    // Add the image to the set:
+                    set.put(number, f.getAbsolutePath());
                 }
-
-                zis.close();
             } catch (Exception e) {
-                Log.e("loadFramesZIP", zipFile, e);
-                return null;
+                Log.e("tryLoadFrames", "Body", e);
+                return false;
             }
 
-            Bitmap[] layers;
             // No layers loaded?
             if (layerSet.size() == 0) {
                 layers = null;
             } else {
-                // Copy the Bitmaps to the array (assuming values() is sorted
+                // Copy the paths to the array (assuming values() is sorted
                 // here):
-                layers = new Bitmap[layerSet.size()];
+                layers = new String[layerSet.size()];
                 layerSet.values().toArray(layers);
             }
 
-            Bitmap[] frames;
             // No frames loaded?
             if (frameSet.size() == 0) {
                 frames = null;
             } else {
-                // Copy the Bitmaps to the array (assuming values() is sorted
+                // Copy the paths to the array (assuming values() is sorted
                 // here):
-                frames = new Bitmap[frameSet.size()];
+                frames = new String[frameSet.size()];
                 frameSet.values().toArray(frames);
             }
 
-            return new Pair<Bitmap[], Bitmap[]>(layers, frames);
+            return true;
         }
 
         @Override
@@ -247,6 +224,10 @@ public class AnimateService extends WallpaperService {
                         }
 
                         if (mVisible) {
+                            BitmapFactory.Options options = new BitmapFactory.Options();
+                            options.inPurgeable = true;
+                            options.inInputShareable = true;
+
                             final int cw = c.getWidth(), ch = c.getHeight();
                             final int fw = animSourceRect.width(), fh = animSourceRect.height();
 
@@ -263,12 +244,14 @@ public class AnimateService extends WallpaperService {
                             if (layers != null) {
                                 // Draw layers in order:
                                 for (int i = 0; i < layers.length; ++i) {
-                                    c.drawBitmap(layers[i], animSourceRect, target, paint);
+                                    Bitmap bm = BitmapFactory.decodeFile(layers[i], options);
+                                    c.drawBitmap(bm, animSourceRect, target, paint);
                                 }
                             }
                             if (frames != null) {
                                 // Draw the animation frame:
-                                c.drawBitmap(frames[frame], animSourceRect, target, paint);
+                                Bitmap bm = BitmapFactory.decodeFile(frames[frame], options);
+                                c.drawBitmap(bm, animSourceRect, target, paint);
 
                                 // Increment frame counter:
                                 if (++frame >= frames.length)
