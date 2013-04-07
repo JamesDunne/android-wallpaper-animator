@@ -9,12 +9,9 @@ Downloads available at: http://bittwiddlers.org/ftp/jim/software/android/wallpap
 
 1. Download `WallpaperAnimator-master.apk` (200KB) to your android device and install it
 2. Download the sample `animated-wallpaper.zip` (20MB) to your android device
-3. Create a folder `animated-wallpaper` in the root of your primary SD card, e.g. `/mnt/sdcard/` or `/storage/emulated/0/`
-4. Extract `animated-wallpaper.zip` into `animated-wallpaper` folder so that the image files are in that folder with no
-   folder hierarchy present.
-5. Delete any extra files found in `animated-wallpaper` folder.
-6. Set your live wallpaper to "Wallpaper Animator"
-7. Watch it go!
+3. Extract sample `animated-wallpaper.zip` to the root of your primary SD card, e.g. `/storage/emulated/0/` (depends on device)
+4. Extraction should preserve folders and should create a `/animated-wallpaper/` folder
+5. Set your live wallpaper to "Wallpaper Animator" (long-press home screen in an empty space)
 
 Notes
 =====
@@ -29,9 +26,8 @@ Caveats
 =======
 * The folder must be named `animated-wallpaper` and it must to be found in the primary SD card root folder (what `Environment.getExternalStorageDirectory()` returns).
 * The folder can contain any image files you like but must only contain image files (i.e. no .txt files or otherwise)
-* Background layers can be specified by naming the files `layer###.png` where lower numbers are the deepest layer.
-* Each image file name must contain a frame number as the last part of the file name before the file extension.
-* Frame numbers are just a sequence of digits [0-9].
-* Frame numbers don't have to start at one or zero, but they do have to be unique.
-* Frame numbers are only used for relative ordering; they are *not* used as absolute keyframe identifier.
-* All frame images must be the same dimensions.
+* All images must share the same dimensions (720x1080 recommended for portait mode for modern Android devices)
+* Multiple layers of animation are supported
+* Each filename must be named as `layer(label)###_frame(label)###.png` where each `(label)` is optional and does not have to use parentheses.
+* Layer numbers and frame numbers are just digit sequences and don't have to be sequential
+* Layer/frame numbers are only used for relative ordering; they are *not* used as absolute keyframe identifiers
