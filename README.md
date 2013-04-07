@@ -8,8 +8,8 @@ Try it!
 Downloads available at: http://bittwiddlers.org/ftp/jim/software/android/wallpaper-animator/
 
 1. Download `WallpaperAnimator-master.apk` (200KB) to your android device and install it
-2. Download the sample `animated-wallpaper.zip` (20MB) to your android device
-3. Extract sample `animated-wallpaper.zip` to the root of your primary SD card, e.g. `/storage/emulated/0/` (depends on device)
+2. Download the sample `wp-fry.zip` (20MB) to your android device
+3. Extract `wp-fry.zip` to the root of your primary SD card, e.g. `/storage/emulated/0/` (depends on device)
 4. Extraction should preserve folders and should create a `/animated-wallpaper/` folder
 5. Set your live wallpaper to "Wallpaper Animator" (long-press home screen in an empty space)
 
