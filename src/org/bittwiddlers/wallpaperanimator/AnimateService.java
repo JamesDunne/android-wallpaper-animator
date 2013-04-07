@@ -1,6 +1,7 @@
 package org.bittwiddlers.wallpaperanimator;
 
 import android.graphics.Bitmap;
+import android.graphics.Bitmap.Config;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -46,13 +47,15 @@ public class AnimateService extends WallpaperService {
             public String[] framePaths;
         }
 
-        private LayerInfo[] layers     = null;
-        private RectF       targetRect = null;
+        private LayerInfo[]           layers        = null;
+        private RectF                 targetRect    = null;
+        private Bitmap                commonBitmap  = null;
+        private BitmapFactory.Options commonOptions = null;
 
-        private boolean     loaded     = false;
+        private boolean               loaded        = false;
 
-        private String      folderPath = null;
-        private Pattern     rgxExtract = null;
+        private String                folderPath    = null;
+        private Pattern               rgxExtract    = null;
 
         public AnimateEngine() {
             folderPath = Environment.getExternalStorageDirectory() + "/animated-wallpaper/";
@@ -140,27 +143,36 @@ public class AnimateService extends WallpaperService {
                 return false;
             }
 
-            // No layers loaded?
-            if (layerSet.size() == 0) {
-                layers = null;
-            } else {
-                // Copy the paths to the array (assuming values() is sorted
-                // here):
-                layers = new LayerInfo[layerSet.size()];
-                int i = 0;
-                for (Iterator<SortedMap<String, String>> it = layerSet.values().iterator(); it.hasNext(); ++i) {
-                    Collection<String> frames = it.next().values();
+            try {
+                // No layers loaded?
+                if (layerSet.size() == 0) {
+                    layers = null;
+                } else {
+                    // Copy the paths to the array (assuming values() is sorted
+                    // here):
+                    Log.v("tryLoadFrames", String.format("%d layers", layerSet.size()));
+                    layers = new LayerInfo[layerSet.size()];
 
-                    if (frames.size() == 0) {
-                        layers[i] = null;
-                        continue;
+                    int i = 0;
+                    for (Iterator<String> it = layerSet.keySet().iterator(); it.hasNext(); ++i) {
+                        String layer = it.next();
+
+                        Collection<String> frames = layerSet.get(layer).values();
+                        Log.v("tryLoadFrames", String.format("Layer %s has %d frames", layer, frames.size()));
+
+                        if (frames.size() == 0) {
+                            layers[i] = null;
+                            continue;
+                        }
+
+                        layers[i] = new LayerInfo();
+                        layers[i].frame = 0;
+                        layers[i].framePaths = frames.toArray(new String[frames.size()]);
                     }
-
-                    layers[i] = new LayerInfo();
-                    layers[i].frame = 0;
-                    layers[i].framePaths = new String[frames.size()];
-                    frames.toArray(layers[i].framePaths);
                 }
+            } catch (Throwable e) {
+                Log.e("tryLoadFrames", "layerSet", e);
+                return false;
             }
 
             return true;
@@ -181,6 +193,7 @@ public class AnimateService extends WallpaperService {
                 loaded = tryLoadFrames();
 
             targetRect = null;
+            commonBitmap = null;
         }
 
         @Override
@@ -215,8 +228,11 @@ public class AnimateService extends WallpaperService {
         }
 
         private final void draw() {
-            if (!loaded) {
-                mVisible = false;
+            final boolean isLoaded = loaded;
+            boolean isVisible = mVisible;
+
+            if (!isLoaded) {
+                isVisible = false;
             }
 
             SurfaceHolder holder = null;
@@ -236,27 +252,31 @@ public class AnimateService extends WallpaperService {
                         // Clear the screen:
                         c.drawColor(Color.BLACK);
 
-                        if (mVisible && layers != null) {
+                        if (isVisible) {
+                            final int cw = c.getWidth(), ch = c.getHeight();
+
                             if (targetRect == null && animSourceRect != null) {
-                                final int cw = c.getWidth(), ch = c.getHeight();
                                 final int fw = animSourceRect.width(), fh = animSourceRect.height();
+                                if (commonBitmap == null) {
+                                    commonBitmap = Bitmap.createBitmap(fw, fh, Config.ARGB_8888);
+
+                                    commonOptions = new BitmapFactory.Options();
+                                    commonOptions.inBitmap = commonBitmap;
+                                    commonOptions.inSampleSize = 1;
+                                    commonOptions.inMutable = true;
+                                    commonOptions.inScaled = false;
+                                }
 
                                 // Scales bitmap up and centers it:
                                 float scale;
                                 scale = Math.min((float) ch / (float) fh, (float) cw / (float) fw);
 
                                 final float halfwidth = fw * scale * 0.5f, halfheight = fh * scale * 0.5f;
-                                final float centerX = cw / 2f, centerY = ch / 2f;
+                                final float centerX = cw * 0.5f, centerY = ch * 0.5f;
                                 targetRect = new RectF(centerX - halfwidth, centerY - halfheight, centerX + halfwidth, centerY + halfheight);
                             }
 
-                            if (targetRect != null) {
-                                Paint paint = new Paint();
-
-                                BitmapFactory.Options options = new BitmapFactory.Options();
-                                options.inPurgeable = true;
-                                options.inInputShareable = true;
-
+                            if (targetRect != null && commonBitmap != null) {
                                 // Draw layers in order:
                                 for (int i = 0; i < layers.length; ++i) {
                                     LayerInfo layer = layers[i];
@@ -269,12 +289,23 @@ public class AnimateService extends WallpaperService {
                                     if (layer.frame >= layer.framePaths.length)
                                         continue;
 
-                                    // Draw the bitmap:
-                                    Bitmap bm = BitmapFactory.decodeFile(layer.framePaths[layer.frame], options);
-                                    c.drawBitmap(bm, animSourceRect, targetRect, paint);
+                                    try {
+                                        // Draw the bitmap:
+                                        String path = layer.framePaths[layer.frame];
+
+                                        Bitmap bm = BitmapFactory.decodeFile(path, commonOptions);
+                                        if (bm != null) {
+                                            //c.drawBitmap(bm, 0f, 0f, null);
+                                            c.drawBitmap(bm, animSourceRect, targetRect, null);
+                                        }
+                                        bm = null;
+                                    } catch (Throwable e) {
+                                        Log.e("draw", "Render bitmap", e);
+                                    }
 
                                     // Increment layer's frame counter:
-                                    if (++layer.frame >= layer.framePaths.length)
+                                    layer.frame = layer.frame + 1;
+                                    if (layer.frame >= layer.framePaths.length)
                                         layer.frame = 0;
                                 }
                             }
@@ -282,16 +313,24 @@ public class AnimateService extends WallpaperService {
                     }
                 }
             } finally {
-                if (c != null)
-                    holder.unlockCanvasAndPost(c);
+                if (c != null) {
+                    try {
+                        holder.unlockCanvasAndPost(c);
+                    } catch (Throwable e) {
+                        Log.e("draw", "unlockCanvasAndPost", e);
+                    }
+                }
             }
 
             mHandler.removeCallbacks(mUpdateDisplay);
-            if (mVisible) {
+            if (isVisible) {
                 // 30 fps = 33.3333ms per frame
-                long delay = 33 - (android.os.SystemClock.uptimeMillis() - startTime);
-                if (delay < 0l)
-                    delay = 0l;
+                long frameTime = (android.os.SystemClock.uptimeMillis() - startTime);
+                Log.v("draw", String.format("Frame time %d ms", frameTime));
+
+                long delay = 33 - frameTime;
+                if (delay < 20l)
+                    delay = 20l;
 
                 mHandler.postDelayed(mUpdateDisplay, delay);
             }

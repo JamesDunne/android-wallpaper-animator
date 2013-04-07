@@ -7,7 +7,7 @@
     <uses-feature android:name="android.software.live_wallpaper" />
 
     <uses-sdk
-        android:minSdkVersion="8"
+        android:minSdkVersion="11"
         android:targetSdkVersion="17" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
 
