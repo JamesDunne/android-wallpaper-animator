@@ -5,7 +5,6 @@ import android.graphics.Bitmap.Config;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.os.Bundle;
@@ -56,11 +55,16 @@ public class AnimateService extends WallpaperService {
 
         private String                folderPath    = null;
         private Pattern               rgxExtract    = null;
+        private int                   screenWidth;
+        private int                   screenHeight;
+        private int xPixelOffset;
+        private float xOffsetStep;
+        private float xOffset;
 
         public AnimateEngine() {
             folderPath = Environment.getExternalStorageDirectory() + "/animated-wallpaper/";
 
-            rgxExtract = java.util.regex.Pattern.compile("layer(?:.*?)([0-9]++)_frame(?:.*?)([0-9]++)(?:\\..+)*$", Pattern.CASE_INSENSITIVE);
+            rgxExtract = java.util.regex.Pattern.compile(".*?([0-9]++)(?:\\..+)+$", Pattern.CASE_INSENSITIVE);
         }
 
         private final boolean tryLoadFrames() {
@@ -93,8 +97,8 @@ public class AnimateService extends WallpaperService {
                         continue;
                     }
 
-                    String layer = m.group(1);
-                    String frame = m.group(2);
+                    String layer = "0";
+                    String frame = m.group(1);
 
                     SortedMap<String, String> set;
                     if (layerSet.containsKey(layer)) {
@@ -209,8 +213,22 @@ public class AnimateService extends WallpaperService {
 
         @Override
         public void onSurfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+            screenWidth = width;
+            screenHeight = height;
+
             setupInitialFrame();
             draw();
+        }
+
+        @Override
+        public void onOffsetsChanged(float xOffset, float yOffset, float xOffsetStep, float yOffsetStep, int xPixelOffset, int yPixelOffset) {
+            this.xPixelOffset = xPixelOffset;
+            this.xOffsetStep = xOffsetStep;
+            this.xOffset = xOffset;
+            targetRect = null;
+
+            // TODO Auto-generated method stub
+            super.onOffsetsChanged(xOffset, yOffset, xOffsetStep, yOffsetStep, xPixelOffset, yPixelOffset);
         }
 
         @Override
@@ -253,9 +271,13 @@ public class AnimateService extends WallpaperService {
                         c.drawColor(Color.BLACK);
 
                         if (isVisible) {
-                            final int cw = c.getWidth(), ch = c.getHeight();
+                            final int cw = screenWidth, ch = screenHeight;
 
                             if (targetRect == null && animSourceRect != null) {
+                                // Total virtual screen width:
+                                final int vw = ((int)(cw / xOffsetStep) + cw);
+
+                                Log.v("draw", String.format("vw = %d, cw = %d, xOffset = %f", vw, cw, xOffset));
                                 final int fw = animSourceRect.width(), fh = animSourceRect.height();
                                 if (commonBitmap == null) {
                                     commonBitmap = Bitmap.createBitmap(fw, fh, Config.ARGB_8888);
@@ -268,15 +290,14 @@ public class AnimateService extends WallpaperService {
                                 }
 
                                 // Scales bitmap up and centers it:
-                                float scale;
-                                scale = Math.min((float) ch / (float) fh, (float) cw / (float) fw);
-
-                                final float halfwidth = fw * scale * 0.5f, halfheight = fh * scale * 0.5f;
-                                final float centerX = cw * 0.5f, centerY = ch * 0.5f;
-                                targetRect = new RectF(centerX - halfwidth, centerY - halfheight, centerX + halfwidth, centerY + halfheight);
+                                float xscale = (float) cw / (float) fw;
+                                float scale = (float) ch / (float) fh;
+                                float left = -xOffset * vw * scale / xscale;
+                                float top = (ch * 0.5f);
+                                targetRect = new RectF(left, top - (fh * 0.5f * scale), left + (fw * scale), top + (fh * 0.5f * scale));
                             }
 
-                            if (targetRect != null && commonBitmap != null) {
+                            if (targetRect != null && animSourceRect != null && commonBitmap != null) {
                                 // Draw layers in order:
                                 for (int i = 0; i < layers.length; ++i) {
                                     LayerInfo layer = layers[i];
@@ -295,7 +316,6 @@ public class AnimateService extends WallpaperService {
 
                                         Bitmap bm = BitmapFactory.decodeFile(path, commonOptions);
                                         if (bm != null) {
-                                            //c.drawBitmap(bm, 0f, 0f, null);
                                             c.drawBitmap(bm, animSourceRect, targetRect, null);
                                         }
                                         bm = null;
@@ -326,7 +346,7 @@ public class AnimateService extends WallpaperService {
             if (isVisible) {
                 // 30 fps = 33.3333ms per frame
                 long frameTime = (android.os.SystemClock.uptimeMillis() - startTime);
-                Log.v("draw", String.format("Frame time %d ms", frameTime));
+                // Log.v("draw", String.format("Frame time %d ms", frameTime));
 
                 long delay = 33 - frameTime;
                 if (delay < 20l)
