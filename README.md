@@ -19,7 +19,7 @@ It's rather unforgiving at the moment. If you don't put the files in the right p
 
 The wallpaper is currently hard-coded to run at ~30fps to be compatible with most popular frame rates.
 
-You'll need a decent CPU speed because bitmaps are decded from the SD card each frame. There is simply not enough
+You'll need a decent CPU speed because bitmaps are decoded from the SD card each frame. There is simply not enough
 memory allowed to be used for bitmaps; this limitation is imposed by the OS and the limit varies by ROM.
 
 Caveats
