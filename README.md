@@ -27,7 +27,7 @@ Caveats
 * The folder must be named `animated-wallpaper` and it must to be found in the primary SD card root folder (what `Environment.getExternalStorageDirectory()` returns).
 * The folder can contain any image files you like but must only contain image files (i.e. no .txt files or otherwise)
 * All images must share the same dimensions (720x1080 recommended for portait mode for modern Android devices)
-* Multiple layers of animation are supported
-* Each filename must be named as `layer(label)###_frame(label)###.png` where each `(label)` is optional and does not have to use parentheses.
-* Layer numbers and frame numbers are just digit sequences and don't have to be sequential
-* Layer/frame numbers are only used for relative ordering; they are *not* used as absolute keyframe identifiers
+* Due to resource constraints, multiple layers of animation are not supported
+* Each filename must be named as `(anything here)###.extension`. File extension can be any Android OS supported image format.
+* Frame numbers are just digit sequences and don't have to be sequential
+* Frame numbers are only used for relative ordering; they are *not* used as absolute keyframe identifiers
