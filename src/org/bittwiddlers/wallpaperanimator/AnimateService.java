@@ -258,11 +258,6 @@ public class AnimateService extends WallpaperService {
                             if (targetRect == null && animSourceRect != null) {
                                 final int fw = animSourceRect.width(), fh = animSourceRect.height();
 
-                                // Virtual scrollable screen width:
-                                final float sw = (cw / xOffsetStep);
-                                final float fsw = (fw / xOffsetStep);
-
-                                Log.v("draw", String.format("sw = %f, fsw = %f, xOffset = %f", sw, fsw, xOffset));
                                 if (commonBitmap == null) {
                                     commonBitmap = Bitmap.createBitmap(fw, fh, Config.ARGB_8888);
 
@@ -274,12 +269,9 @@ public class AnimateService extends WallpaperService {
                                 }
 
                                 // Scales bitmap up and centers it:
-                                final float yscale = (float)ch / (float)fh;
-
-                                final float xscale = sw / fsw;
-                                final float left = -xOffset * fsw;
+                                final float left = -xOffset * fw;
                                 final float top = ch * 0.5f;
-                                targetRect = new RectF(left, top - (fh * 0.5f * yscale), left + (fw * xscale * yscale), top + (fh * 0.5f * yscale));
+                                targetRect = new RectF(left, top - (fh * 0.5f), left + fw - 1, top + (fh * 0.5f) - 1);
                             }
 
                             if (targetRect != null && animSourceRect != null && commonBitmap != null) {
