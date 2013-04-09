@@ -269,9 +269,16 @@ public class AnimateService extends WallpaperService {
                                 }
 
                                 // Scales bitmap up and centers it:
-                                final float left = -xOffset * fw;
+                                final float cr = (float)cw / (float)ch;
+                                final float fr = (float)fw / (float)fh;
+                                final float ew = Math.min(fr - cr, cr - fr);
+
+                                final float w = fw * (1f - ew);
+                                final float left = xOffset * (fw * ew);
+
                                 final float top = ch * 0.5f;
-                                targetRect = new RectF(left, top - (fh * 0.5f), left + fw - 1, top + (fh * 0.5f) - 1);
+                                targetRect = new RectF(left, top - (fh * (1f - ew) * 0.5f), left + w - 1, top + (fh * (1f - ew) * 0.5f) - 1);
+                                Log.d("draw", String.format("left = %f, w = %f, cr = %f, fr = %f, ew = %f", left, w, cr, fr, ew));
                             }
 
                             if (targetRect != null && animSourceRect != null && commonBitmap != null) {
